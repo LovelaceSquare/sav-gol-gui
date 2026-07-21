@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Savitzky-Golay Filter</title>
+<style>
+/* ====================================================================
+   CSS Variables - Design System
+   ==================================================================== */
+:root {
+    --bg-primary: #E8EBED; --bg-secondary: #F2F4F6; --bg-tertiary: #EBF0F4;
+    --text-primary: #1E293B; --text-secondary: #64748B; --text-tertiary: #94A3B8;
+    --border-color: #E2E8F0;
+    --accent-primary: #42A5F5; --accent-secondary: #90CAF9;
+    --accent-gradient-start: #90CAF9; --accent-gradient-end: #64B5F6;
+    --button-bg: #F1F5F9; --button-border: #E2E8F0; --button-text: #475569;
+    --shadow-color: rgba(0, 0, 0, 0.05); --shadow-accent: rgba(100, 181, 246, 0.3);
+    --status-indicator: #10B981; --error-color: #EF4444; --warning-color: #F59E0B;
+    --spectrum-color: rgba(66, 165, 245, 1.0);
+    --smoothed-color: rgba(239, 68, 68, 0.9);
+    --result-color: rgba(16, 185, 129, 0.9);
+    --all-spectra-color: rgba(160, 160, 160, 0.4);
+    --grid-color: rgba(0, 0, 0, 0.08);
+    --axis-text: #64748B;
+}
+body.dark-mode {
+    --bg-primary: #0F172A; --bg-secondary: #1E293B; --bg-tertiary: #334155;
+    --text-primary: #F1F5F9; --text-secondary: #CBD5E1; --text-tertiary: #94A3B8;
+    --border-color: #334155;
+    --accent-primary: #60A5FA; --accent-secondary: #93C5FD;
+    --accent-gradient-start: #60A5FA; --accent-gradient-end: #3B82F6;
+    --button-bg: #334155; --button-border: #475569; --button-text: #E2E8F0;
+    --shadow-color: rgba(0, 0, 0, 0.3); --shadow-accent: rgba(59, 130, 246, 0.4);
+    --status-indicator: #34D399; --error-color: #F87171; --warning-color: #FBBF24;
+    --spectrum-color: rgba(96, 165, 250, 1.0);
+    --smoothed-color: rgba(248, 113, 113, 0.9);
+    --result-color: rgba(52, 211, 153, 0.9);
+    --all-spectra-color: rgba(160, 160, 160, 0.25);
+    --grid-color: rgba(255, 255, 255, 0.08);
+    --axis-text: #94A3B8;
+}
+
+/* ---- Reset ---- */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+    background: var(--bg-primary); color: var(--text-primary);
+    overflow: hidden; height: 100vh; display: flex; flex-direction: column;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ---- Main Layout (2-column) ---- */
+.main-content {
+    flex: 1; display: flex; gap: 0; overflow: hidden;
+}
+
+/* ---- Left Panel ---- */
+.controls-panel {
+    width: 416px; min-width: 280px; max-width: 600px;
+    background: var(--bg-secondary); border-right: 1px solid var(--border-color);
+    overflow-y: auto; overflow-x: hidden; padding: 14px; display: flex; flex-direction: column; gap: 12px;
+    flex-shrink: 0;
+}
+.controls-panel::-webkit-scrollbar { width: 8px; }
+.controls-panel::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+#postLoadControls { display: none; flex-direction: column; gap: 12px; }
+
+/* ---- Resize Handle ---- */
+.resize-handle {
+    width: 6px; cursor: col-resize; background: transparent;
+    flex-shrink: 0; position: relative; z-index: 10;
+    transition: background 0.2s ease;
+}
+.resize-handle:hover, .resize-handle.active {
+    background: var(--accent-primary);
+}
+.resize-handle::after {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 2px; height: 32px; border-radius: 1px;
+    background: var(--border-color);
+    transition: background 0.2s ease;
+}
+.resize-handle:hover::after, .resize-handle.active::after {
+    background: white;
+}
+
+/* ---- Right Panel ---- */
+.charts-panel {
+    flex: 1; display: flex; flex-direction: column; gap: 0; padding: 8px; overflow: hidden;
+}
+
+/* ---- Section ---- */
+.section {
+    background: var(--bg-tertiary); border-radius: 14px; padding: 14px;
+    border: 1px solid var(--border-color); box-shadow: 0 1px 4px var(--shadow-color);
+}
+.section-title {
+    font-size: 13px; font-weight: 600; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+}
+
+/* ---- Buttons ---- */
+.btn-primary {
+    background: linear-gradient(135deg, var(--accent-gradient-start) 0%, var(--accent-gradient-end) 100%);
+    border: none; border-radius: 12px; padding: 12px 18px; color: white;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 3px 10px var(--shadow-accent);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn-primary:hover { box-shadow: 0 5px 16px var(--shadow-accent); transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
+
+.btn-secondary {
+    background: var(--button-bg); border: 1px solid var(--button-border);
+    border-radius: 12px; padding: 10px 18px; color: var(--button-text);
+    font-size: 16px; font-weight: 500; cursor: pointer; transition: all 0.2s ease;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-secondary:hover { background: var(--accent-secondary); border-color: var(--accent-primary); color: var(--text-primary); transform: translateY(-1px); }
+.btn-secondary:disabled { opacity: 0.5; cursor: default; transform: none; }
+
+.btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.btn-row-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+.btn-sm { padding: 8px 14px; font-size: 14px; border-radius: 10px; }
+.btn-row-4 .btn-sm { min-width: 0; padding-left: 6px; padding-right: 6px; font-size: 13px; }
+
+/* ---- Parameter Box ---- */
+.param-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+}
+.param-box:last-child { margin-bottom: 0; }
+
+/* ---- Slider with nudge buttons ---- */
+.slider-group { margin-bottom: 0; }
+.slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.slider-label { font-size: 14px; font-weight: 500; color: var(--text-secondary); }
+.slider-controls { display: flex; align-items: center; gap: 5px; }
+.slider-value {
+    font-size: 14px; font-weight: 600; color: var(--accent-primary);
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    background: var(--bg-secondary); border: 1px solid var(--border-color);
+    border-radius: 6px; padding: 3px 8px; width: 60px; text-align: right;
+}
+.slider-value:focus { outline: none; border-color: var(--accent-primary); }
+.btn-nudge {
+    width: 24px; height: 18px; background: var(--button-bg); border: 1px solid var(--button-border);
+    border-radius: 4px; font-size: 10px; line-height: 1; cursor: pointer;
+    color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
+    padding: 0; transition: all 0.15s ease;
+}
+.btn-nudge:hover { background: var(--accent-secondary); border-color: var(--accent-primary); }
+.nudge-pair { display: flex; flex-direction: column; gap: 3px; }
+.btn-gear {
+    width: 28px; height: 28px; background: var(--button-bg); border: 1px solid var(--button-border);
+    border-radius: 6px; font-size: 14px; cursor: pointer; color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    transition: all 0.15s ease;
+}
+.btn-gear:hover { background: var(--accent-secondary); border-color: var(--accent-primary); }
+
+input[type="range"] {
+    -webkit-appearance: none; width: 100%; height: 8px;
+    background: var(--slider-track, #CBD5E1); border-radius: 4px; outline: none;
+}
+body.dark-mode input[type="range"] { background: #475569; }
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 22px; height: 22px;
+    background: var(--accent-primary); border-radius: 50%; cursor: pointer;
+    box-shadow: 0 2px 6px rgba(66, 165, 245, 0.4); transition: all 0.2s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type="range"]::-moz-range-thumb {
+    width: 22px; height: 22px; background: var(--accent-primary);
+    border-radius: 50%; cursor: pointer; border: none;
+}
+.slider-ticks {
+    display: flex; justify-content: space-between; margin-top: 3px;
+    font-size: 11px; color: var(--text-tertiary);
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+}
+
+/* ---- Edge method select ---- */
+.edge-select {
+    background: var(--bg-secondary); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 6px 10px; font-size: 14px;
+    color: var(--text-primary); cursor: pointer; width: 100%;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+}
+.edge-select:focus { outline: none; border-color: var(--accent-primary); }
+
+/* ---- Data Info ---- */
+.data-info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 14px; color: var(--text-secondary); padding: 3px 0;
+}
+.data-info-label { font-weight: 500; }
+.data-info-value {
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    color: var(--text-primary); font-weight: 600;
+}
+
+/* ---- Chart Container ---- */
+.chart-container {
+    flex: 1; background: var(--bg-secondary); border-radius: 12px; padding: 8px 10px;
+    border: 1px solid var(--border-color); box-shadow: 0 1px 4px var(--shadow-color);
+    display: flex; flex-direction: column; min-height: 0; margin-bottom: 6px;
+}
+.chart-container:last-child { margin-bottom: 0; }
+.chart-header {
+    display: flex; align-items: center;
+    margin-bottom: 4px; flex-shrink: 0; position: relative;
+}
+.chart-title { font-size: 16px; font-weight: 600; color: var(--text-primary); flex-shrink: 0; }
+.chart-header-right { display: flex; align-items: center; gap: 8px; justify-content: center; flex: 1; min-width: 0; }
+.chart-wrapper { flex: 1; position: relative; min-height: 0; }
+.chart-wrapper canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.chart-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; color: var(--text-tertiary); font-size: 16px; font-style: italic; gap: 12px;
+}
+.chart-empty-icon { font-size: 48px; opacity: 0.4; }
+.chart-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary); flex-shrink: 0; margin-top: 3px; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-swatch { width: 18px; height: 4px; border-radius: 2px; }
+
+/* ---- Horizontal Chart Resize Handle ---- */
+.chart-resize-handle {
+    height: 6px; cursor: row-resize; background: transparent;
+    flex-shrink: 0; position: relative; z-index: 10;
+}
+.chart-resize-handle:hover, .chart-resize-handle.active {
+    background: var(--accent-primary);
+}
+.chart-resize-handle::after {
+    content: ''; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); width: 34px; height: 2px;
+    border-radius: 1px; background: var(--border-color);
+}
+.chart-resize-handle:hover::after, .chart-resize-handle.active::after {
+    background: white;
+}
+
+/* ---- Burger Menu ---- */
+.dropdown { position: relative; display: inline-block; }
+.burger-menu {
+    display: none; position: absolute; top: 100%; right: 0; margin-top: 4px;
+    background: var(--bg-secondary); border: 1px solid var(--border-color);
+    border-radius: 12px; padding: 5px 0; min-width: 260px; z-index: 1000;
+    box-shadow: 0 8px 24px var(--shadow-color);
+}
+.burger-menu.show { display: block; }
+.burger-toggle {
+    padding: 10px 18px; font-size: 16px; color: var(--text-primary);
+    cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+    transition: background 0.15s ease;
+}
+.burger-toggle:hover { background: var(--bg-tertiary); }
+.burger-toggle .check { color: var(--accent-primary); font-weight: 700; width: 22px; text-align: center; }
+.dropdown-item {
+    padding: 10px 18px; font-size: 16px; color: var(--text-primary);
+    cursor: pointer; transition: background 0.15s ease;
+}
+.dropdown-item:hover { background: var(--bg-tertiary); }
+.dropdown-sep { height: 1px; background: var(--border-color); margin: 5px 0; }
+
+/* ---- Status Bar ---- */
+.status-bar {
+    background: var(--bg-secondary); padding: 4px 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+}
+.status-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.status-indicator {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--status-indicator); animation: pulse 2s infinite;
+}
+.status-indicator.error { background: var(--error-color); animation: none; }
+.status-indicator.processing { background: var(--warning-color); animation: pulse 1s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ---- Toast Container ---- */
+.toast-container {
+    position: fixed; top: 20px; right: 20px; z-index: 200;
+    display: flex; flex-direction: column; gap: 12px;
+}
+.toast {
+    background: var(--bg-secondary); border-radius: 14px; padding: 16px 20px;
+    border: 1px solid var(--border-color); box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    display: flex; align-items: center; gap: 14px; min-width: 300px; max-width: 420px;
+    animation: toastSlideIn 0.3s ease;
+}
+.toast-success { border-left: 4px solid var(--status-indicator); }
+.toast-error { border-left: 4px solid var(--error-color); }
+.toast-warning { border-left: 4px solid var(--warning-color); }
+.toast-info { border-left: 4px solid var(--accent-primary); }
+.toast-icon {
+    width: 40px; height: 40px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;
+}
+.toast-success .toast-icon { background: rgba(16, 185, 129, 0.15); }
+.toast-error .toast-icon { background: rgba(239, 68, 68, 0.15); }
+.toast-warning .toast-icon { background: rgba(245, 158, 11, 0.15); }
+.toast-info .toast-icon { background: rgba(66, 165, 245, 0.15); }
+.toast-content { flex: 1; }
+.toast-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+.toast-message { font-size: 13px; color: var(--text-secondary); }
+.toast-close {
+    background: none; border: none; color: var(--text-tertiary); cursor: pointer;
+    font-size: 18px; padding: 4px; line-height: 1;
+}
+.toast-close:hover { color: var(--text-primary); }
+@keyframes toastSlideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+@keyframes toastSlideOut {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+}
+
+/* ---- Modal ---- */
+.modal-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+}
+.modal {
+    background: var(--bg-secondary); border-radius: 18px; padding: 24px;
+    border: 1px solid var(--border-color); box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    min-width: 380px; max-width: 540px;
+}
+.modal-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+/* ---- Form ---- */
+.form-group { margin-bottom: 8px; }
+.form-label { font-size: 14px; font-weight: 500; color: var(--text-secondary); margin-bottom: 4px; display: block; }
+.form-input {
+    width: 100%; background: var(--bg-secondary); border: 1px solid var(--border-color);
+    border-radius: 8px; padding: 8px 12px; font-size: 16px; color: var(--text-primary);
+    transition: all 0.2s ease; font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+}
+.form-input:focus { outline: none; border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(66,165,245,0.15); }
+
+/* ---- Variable Selection Table ---- */
+.var-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.var-table th {
+    background: var(--bg-secondary); color: var(--text-secondary);
+    font-weight: 600; font-size: 12px; text-transform: uppercase;
+    padding: 8px; text-align: center; position: sticky; top: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.var-table td {
+    padding: 7px 8px; border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary); text-align: center;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+}
+.var-table tr:hover { background: rgba(66, 165, 245, 0.05); }
+.var-table tr.selected { background: rgba(66, 165, 245, 0.12); }
+
+/* ---- Circular Chart Badges ---- */
+.chart-header-badges {
+    display: flex; gap: 10px; align-items: center; justify-content: center;
+    flex: 1; min-width: 0;
+}
+.badge-group { display: flex; gap: 8px; align-items: center; }
+.badge-separator {
+    width: 1px; height: 24px; background: var(--border-color); margin: 0 14px;
+}
+.chart-badge {
+    width: 40px; height: 40px; border-radius: 50%;
+    background: var(--bg-secondary); border: 2px solid var(--border-color);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s ease;
+    box-shadow: 0 2px 8px var(--shadow-color); font-size: 18px;
+    color: var(--text-secondary);
+}
+.chart-badge:hover {
+    background: var(--accent-secondary); border-color: var(--accent-primary);
+    transform: scale(1.1);
+}
+.chart-badge.active {
+    background: var(--accent-primary); border-color: var(--accent-primary); color: white;
+}
+.chart-badge.disabled {
+    opacity: 0.35; cursor: default; pointer-events: none;
+}
+.chart-badge svg { width: 20px; height: 20px; fill: currentColor; display: block; }
+.chart-badge-small { width: 34px; height: 34px; font-size: 14px; }
+
+/* ---- Help Modal Pagination ---- */
+.help-page { display: none; }
+.help-page.active { display: block; }
+.help-dots { display: flex; gap: 8px; justify-content: center; margin: 16px 0 8px; }
+.help-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--border-color); cursor: pointer;
+    transition: all 0.2s ease;
+}
+.help-dot.active { background: var(--accent-primary); width: 28px; border-radius: 5px; }
+
+/* ---- Divider ---- */
+.divider { height: 1px; background: var(--border-color); margin: 3px 0; }
+
+/* ---- Spinner ---- */
+.spinner {
+    width: 40px; height: 40px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---- Progress Overlay ---- */
+.progress-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center; z-index: 150;
+}
+.progress-box {
+    background: var(--bg-secondary); border-radius: 18px; padding: 32px 40px;
+    border: 1px solid var(--border-color); box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    min-width: 340px; text-align: center;
+}
+.progress-title { font-size: 17px; font-weight: 600; margin-bottom: 16px; }
+.progress-track {
+    width: 100%; height: 10px; background: var(--border-color);
+    border-radius: 5px; overflow: hidden; margin-bottom: 10px;
+}
+.progress-fill {
+    height: 100%; width: 0; border-radius: 5px;
+    background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end));
+    transition: width 0.15s ease;
+}
+.progress-text {
+    font-size: 14px; color: var(--text-secondary);
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+}
+</style>
+</head>
+<body>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- MAIN -->
+<div class="main-content">
+
+    <!-- LEFT PANEL -->
+    <div class="controls-panel" id="controls-panel">
+
+        <!-- Action Buttons -->
+        <div class="section">
+            <div class="section-title">Actions</div>
+            <div class="btn-row-3">
+                <button class="btn-primary btn-sm" id="btn-load" onclick="sendAction('loadData')">Load Data</button>
+                <button class="btn-primary btn-sm" id="btn-apply" onclick="applyFilter()" disabled>Apply</button>
+                <button class="btn-secondary btn-sm" id="btn-export" onclick="exportData()" disabled>Export</button>
+            </div>
+        </div>
+
+        <div id="postLoadControls">
+
+        <!-- Window Size -->
+        <div class="section">
+            <div class="section-title">Window Size</div>
+            <div class="param-box">
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <span class="slider-label">Convolution window (odd)</span>
+                        <div class="slider-controls">
+                            <input type="text" class="slider-value" id="val-windowSize" value="11">
+                            <div class="nudge-pair">
+                                <button class="btn-nudge" onclick="nudgeWindow(1)">&#9650;</button>
+                                <button class="btn-nudge" onclick="nudgeWindow(-1)">&#9660;</button>
+                            </div>
+                            <button class="btn-gear" onclick="openWindowSettings()" title="Configure range">&#9881;&#65039;</button>
+                        </div>
+                    </div>
+                    <input type="range" id="slider-windowSize" min="3" max="101" step="2" value="11" oninput="onWindowSlider(this.value)">
+                    <div class="slider-ticks" id="ticks-windowSize"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Polynomial Order -->
+        <div class="section">
+            <div class="section-title">Polynomial Order</div>
+            <div class="param-box">
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <span class="slider-label">Polynomial degree</span>
+                        <div class="slider-controls">
+                            <input type="text" class="slider-value" id="val-polyOrder" value="3">
+                            <div class="nudge-pair">
+                                <button class="btn-nudge" onclick="nudgePoly(1)">&#9650;</button>
+                                <button class="btn-nudge" onclick="nudgePoly(-1)">&#9660;</button>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="range" id="slider-polyOrder" min="0" max="10" step="1" value="3" oninput="onPolySlider(this.value)">
+                    <div class="slider-ticks" id="ticks-polyOrder"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Derivative Order -->
+        <div class="section">
+            <div class="section-title">Derivative Order</div>
+            <div class="param-box">
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <span class="slider-label">Derivative degree</span>
+                        <div class="slider-controls">
+                            <input type="text" class="slider-value" id="val-derivOrder" value="0">
+                            <div class="nudge-pair">
+                                <button class="btn-nudge" onclick="nudgeDeriv(1)">&#9650;</button>
+                                <button class="btn-nudge" onclick="nudgeDeriv(-1)">&#9660;</button>
+                            </div>
+                        </div>
+                    </div>
+                    <input type="range" id="slider-derivOrder" min="0" max="3" step="1" value="0" oninput="onDerivSlider(this.value)">
+                    <div class="slider-ticks" id="ticks-derivOrder"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edge Handling -->
+        <div class="section">
+            <div class="section-title">Edge Handling</div>
+            <div class="param-box">
+                <div class="slider-header">
+                    <span class="slider-label">Boundary method</span>
+                    <select class="edge-select" id="select-edge" style="width:140px;" onchange="scheduleAutoPreview()">
+                        <option value="none">None</option>
+                        <option value="reflection">Reflection</option>
+                        <option value="replication">Replication</option>
+                        <option value="extrapolation" selected>Extrapolation</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Info -->
+        <div class="section" id="data-info-section">
+            <div class="section-title">Data Info</div>
+            <div class="data-info-row">
+                <span class="data-info-label">Variable</span>
+                <span class="data-info-value" id="info-varname">--</span>
+            </div>
+            <div class="data-info-row">
+                <span class="data-info-label">Size</span>
+                <span class="data-info-value" id="info-size">-- x --</span>
+            </div>
+            <div class="data-info-row">
+                <span class="data-info-label">X spacing</span>
+                <span class="data-info-value" id="info-spacing">--</span>
+            </div>
+        </div>
+
+        </div>
+
+    </div>
+
+    <!-- RESIZE HANDLE -->
+    <div class="resize-handle" id="resize-handle"></div>
+
+    <!-- RIGHT PANEL -->
+    <div class="charts-panel" id="charts-panel">
+
+        <!-- Preview Chart -->
+        <div class="chart-container" id="chart-preview">
+            <div class="chart-header">
+                <span class="chart-title">Preview</span>
+                <div class="chart-header-badges" id="chart-badges">
+                    <!-- Group 1: View controls -->
+                    <div class="badge-group">
+                        <div class="chart-badge chart-badge-small" onclick="resetZoom('preview')" title="Reset view">
+                            <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                        </div>
+                    </div>
+
+                    <!-- Legend -->
+                    <div class="chart-legend" id="preview-legend" style="display:none;margin-left:8px;">
+                        <div class="badge-group sample-navigation" id="sample-navigation">
+                            <div class="chart-badge chart-badge-small disabled" id="badge-prev-sample" onclick="stepSample(-1)" title="Previous sample">
+                                <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                            </div>
+                            <div class="chart-badge chart-badge-small disabled" id="badge-sample-index" title="Current sample (click to edit)" style="min-width:40px;font-size:11px;cursor:text;user-select:none;">
+                                <span id="sample-index-label" onclick="editSampleIndex()">1/1</span>
+                                <input id="sample-index-input" type="text" style="display:none;width:36px;border:none;background:transparent;color:inherit;font-size:11px;text-align:center;outline:none;padding:0;" onkeydown="handleSampleIndexKey(event)" onblur="commitSampleIndex()">
+                            </div>
+                            <div class="chart-badge chart-badge-small disabled" id="badge-next-sample" onclick="stepSample(1)" title="Next sample">
+                                <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                            </div>
+                        </div>
+                        <div class="badge-separator"></div>
+                        <div class="legend-item"><div class="legend-swatch" id="swatch-original"></div><span>Original sample</span></div>
+                        <div class="legend-item"><div class="legend-swatch" id="swatch-smoothed"></div><span>Smoothed</span></div>
+                    </div>
+                </div>
+
+                <!-- + Menu (right-aligned) -->
+                <div class="dropdown" style="position:relative;flex-shrink:0;">
+                    <div class="chart-badge chart-badge-small" id="burger-btn" onclick="toggleBurgerMenu()" title="More options">
+                        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    </div>
+                    <div class="burger-menu" id="burger-menu">
+                        <div class="burger-toggle" onclick="toggleDarkMode()">
+                            <span>Dark mode</span><span class="check" id="chk-darkMode"></span>
+                        </div>
+                        <div class="dropdown-sep"></div>
+                        <div class="dropdown-item" onclick="showHelp(); closeBurger();">Help</div>
+                    </div>
+                </div>
+            </div>
+            <div class="chart-wrapper" id="preview-wrapper">
+                <canvas id="preview-canvas"></canvas>
+                <div class="chart-empty" id="preview-empty">
+                    <div class="chart-empty-icon">&#128200;</div>
+                    <div>Load spectral data to begin</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="chart-resize-handle" id="chart-resize-1"></div>
+
+        <!-- Result Chart -->
+        <div class="chart-container" id="chart-result">
+            <div class="chart-header">
+                <span class="chart-title">Result</span>
+                <div class="chart-header-right">
+                    <div class="chart-legend" id="result-legend" style="display:none;">
+                        <div class="legend-item"><div class="legend-swatch" id="swatch-result"></div><span>Smoothed spectra</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="chart-wrapper" id="result-wrapper">
+                <canvas id="result-canvas"></canvas>
+                <div class="chart-empty" id="result-empty">
+                    <div class="chart-empty-icon">&#9989;</div>
+                    <div>Apply filter to view result</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+    <div class="status-left">
+        <div class="status-indicator" id="status-indicator"></div>
+        <span id="status-message">Ready</span>
+    </div>
+</div>
+
+<script>
+/* ====================================================================
+   STATE
+   ==================================================================== */
+var htmlComponent = null;
+var lastTimestamp = -1;
+
+/* Data */
+var wavelength = [];
+var originalSpectrum = [];
+var smoothedSpectrum = [];
+var nSamples = 0;
+var nChannels = 0;
+var currentSample = 1;
+var sampleNames = [];
+var hasData = false;
+var loadedVarName = '';
+var axisUniform = true;
+var previewTimer = null;
+var previewRequestId = 0;
+var latestPreviewResponse = 0;
+
+/* Result data (after apply) */
+var resultSpectra = [];
+var resultWavelengths = [];
+var hasResult = false;
+var resultCurrent = false;
+var resultPlotNote = '';
+
+/* View state (null = auto-fit) */
+var previewView = null;
+var resultView = null;
+var panState = null;
+
+/* Slider configs */
+var windowCfg = { min: 3, max: 101, step: 2 };
+
+/* Chart margins */
+var MARGIN = { top: 10, right: 16, bottom: 48, left: 72 };
+
+/* ====================================================================
+   THEME
+   ==================================================================== */
+function toggleDarkMode() {
+    document.body.classList.toggle('dark-mode');
+    var isDark = document.body.classList.contains('dark-mode');
+    localStorage.setItem('savgol_darkMode', isDark);
+    var chk = document.getElementById('chk-darkMode');
+    if (chk) chk.textContent = isDark ? '\u2713' : '';
+    updateLegendSwatches();
+    renderAll();
+}
+
+function restoreDarkMode() {
+    if (localStorage.getItem('savgol_darkMode') === 'true') {
+        document.body.classList.add('dark-mode');
+    }
+    var chk = document.getElementById('chk-darkMode');
+    if (chk) chk.textContent = document.body.classList.contains('dark-mode') ? '\u2713' : '';
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        toggleDarkMode();
+    }
+});
+
+/* ====================================================================
+   BURGER MENU
+   ==================================================================== */
+function toggleBurgerMenu() {
+    var bm = document.getElementById('burger-menu');
+    var wasOpen = bm.classList.contains('show');
+    closeAllMenus();
+    if (!wasOpen) bm.classList.add('show');
+}
+
+function closeBurger() {
+    document.getElementById('burger-menu').classList.remove('show');
+}
+
+function closeAllMenus() {
+    var menus = document.querySelectorAll('.burger-menu');
+    for (var i = 0; i < menus.length; i++) menus[i].classList.remove('show');
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#burger-btn') && !e.target.closest('.burger-menu')) {
+        closeAllMenus();
+    }
+});
+
+/* ====================================================================
+   WINDOW SIZE SLIDER (linear, odd integers)
+   ==================================================================== */
+function onWindowSlider(val) {
+    val = parseInt(val);
+    if (val % 2 === 0) val += 1;
+    document.getElementById('val-windowSize').value = val;
+    scheduleAutoPreview();
+}
+
+function nudgeWindow(dir) {
+    var el = document.getElementById('val-windowSize');
+    var val = parseInt(el.value) || 11;
+    val += dir * 2;
+    val = Math.max(windowCfg.min, Math.min(windowCfg.max, val));
+    if (val % 2 === 0) val += 1;
+    el.value = val;
+    document.getElementById('slider-windowSize').value = val;
+    scheduleAutoPreview();
+}
+
+function syncWindowFromInput() {
+    var el = document.getElementById('val-windowSize');
+    var val = parseInt(el.value);
+    if (isNaN(val) || val < windowCfg.min) val = windowCfg.min;
+    if (val > windowCfg.max) val = windowCfg.max;
+    if (val % 2 === 0) val += 1;
+    el.value = val;
+    document.getElementById('slider-windowSize').value = val;
+    scheduleAutoPreview();
+}
+
+function initWindowTicks() {
+    var el = document.getElementById('ticks-windowSize');
+    if (!el) return;
+    var ticks = [windowCfg.min];
+    var range = windowCfg.max - windowCfg.min;
+    /* Keep labels natural: 10s for short ranges, 100s for long ranges. */
+    var step = range <= 120 ? 10 : 100;
+    for (var v = Math.ceil(windowCfg.min / step) * step; v < windowCfg.max; v += step) {
+        if (v > windowCfg.min) ticks.push(v);
+    }
+    if (ticks[ticks.length - 1] !== windowCfg.max) ticks.push(windowCfg.max);
+    el.innerHTML = ticks.map(function(t) { return '<span>' + t + '</span>'; }).join('');
+}
+
+function openWindowSettings() {
+    var availableMax = nChannels > 0 ? Math.max(3, nChannels - (nChannels % 2 === 0 ? 1 : 0)) : 999999;
+    showSettingsModal('Window Size Range', [
+        { label: 'Minimum (odd)', id: 'modal-wmin', type: 'number', value: windowCfg.min, min: 3, step: 2 },
+        { label: 'Maximum (odd)', id: 'modal-wmax', type: 'number', value: windowCfg.max, min: 3, max: availableMax, step: 2 }
+    ], function() {
+        var mn = parseInt(document.getElementById('modal-wmin').value);
+        var mx = parseInt(document.getElementById('modal-wmax').value);
+        if (isFinite(mn) && isFinite(mx) && mx > mn && mn >= 3 && mx <= availableMax) {
+            if (mn % 2 === 0) mn += 1;
+            if (mx % 2 === 0) mx -= 1;
+            windowCfg.min = mn;
+            windowCfg.max = mx;
+            var sl = document.getElementById('slider-windowSize');
+            sl.min = mn; sl.max = mx; sl.step = 2;
+            var curVal = parseInt(document.getElementById('val-windowSize').value) || 11;
+            curVal = Math.max(mn, Math.min(mx, curVal));
+            if (curVal % 2 === 0) curVal += 1;
+            sl.value = curVal;
+            document.getElementById('val-windowSize').value = curVal;
+            initWindowTicks();
+        }
+    });
+}
+
+/* ====================================================================
+   POLYNOMIAL ORDER SLIDER
+   ==================================================================== */
+function onPolySlider(val) {
+    document.getElementById('val-polyOrder').value = parseInt(val);
+    scheduleAutoPreview();
+}
+
+function nudgePoly(dir) {
+    var el = document.getElementById('val-polyOrder');
+    var val = parseInt(el.value);
+    if (isNaN(val)) val = 3;
+    val += dir;
+    val = Math.max(0, Math.min(10, val));
+    el.value = val;
+    document.getElementById('slider-polyOrder').value = val;
+    scheduleAutoPreview();
+}
+
+function syncPolyFromInput() {
+    var el = document.getElementById('val-polyOrder');
+    var val = parseInt(el.value);
+    if (isNaN(val) || val < 0) val = 0;
+    if (val > 10) val = 10;
+    el.value = val;
+    document.getElementById('slider-polyOrder').value = val;
+    scheduleAutoPreview();
+}
+
+function initPolyTicks() {
+    var el = document.getElementById('ticks-polyOrder');
+    if (!el) return;
+    var ticks = [];
+    for (var i = 0; i <= 10; i += 2) ticks.push(i);
+    el.innerHTML = ticks.map(function(t) { return '<span>' + t + '</span>'; }).join('');
+}
+
+/* ====================================================================
+   DERIVATIVE ORDER SLIDER
+   ==================================================================== */
+function onDerivSlider(val) {
+    document.getElementById('val-derivOrder').value = parseInt(val);
+    scheduleAutoPreview();
+}
+
+function nudgeDeriv(dir) {
+    var el = document.getElementById('val-derivOrder');
+    var val = parseInt(el.value) || 0;
+    val += dir;
+    val = Math.max(0, Math.min(3, val));
+    el.value = val;
+    document.getElementById('slider-derivOrder').value = val;
+    scheduleAutoPreview();
+}
+
+function syncDerivFromInput() {
+    var el = document.getElementById('val-derivOrder');
+    var val = parseInt(el.value);
+    if (isNaN(val) || val < 0) val = 0;
+    if (val > 3) val = 3;
+    el.value = val;
+    document.getElementById('slider-derivOrder').value = val;
+    scheduleAutoPreview();
+}
+
+function initDerivTicks(maxValue) {
+    var el = document.getElementById('ticks-derivOrder');
+    if (!el) return;
+    var max = Number(maxValue);
+    if (!isFinite(max)) max = Number(document.getElementById('slider-derivOrder').max) || 3;
+    var ticks = [0, 1, 2, 3, 4];
+    ticks = ticks.filter(function(t) { return t <= max; });
+    if (ticks[ticks.length - 1] !== max) ticks.push(max);
+    el.innerHTML = ticks.map(function(t) { return '<span>' + t + '</span>'; }).join('');
+}
+
+/* ====================================================================
+   SETTINGS MODAL
+   ==================================================================== */
+function showSettingsModal(title, fields, onApply) {
+    var ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    var md = document.createElement('div');
+    md.className = 'modal';
+    var html = '<div class="modal-title">' + title + '</div>';
+    for (var i = 0; i < fields.length; i++) {
+        var f = fields[i];
+        html += '<div class="form-group"><label class="form-label">' + f.label + '</label>' +
+            '<input class="form-input" type="' + f.type + '" id="' + f.id + '" value="' + f.value + '"' +
+            (f.min !== undefined ? ' min="'+f.min+'"' : '') +
+            (f.max !== undefined ? ' max="'+f.max+'"' : '') +
+            (f.step !== undefined ? ' step="'+f.step+'"' : '') +
+            '></div>';
+    }
+    html += '<div class="modal-btns">' +
+        '<button class="btn-secondary btn-sm" id="settings-modal-cancel">Cancel</button>' +
+        '<button class="btn-primary btn-sm" id="settings-modal-apply">Apply</button></div>';
+    md.innerHTML = html;
+    ov.appendChild(md);
+    document.body.appendChild(ov);
+    document.getElementById('settings-modal-cancel').onclick = function() { document.body.removeChild(ov); };
+    document.getElementById('settings-modal-apply').onclick = function() { onApply(); document.body.removeChild(ov); };
+    ov.onclick = function(e) { if (e.target === ov) document.body.removeChild(ov); };
+}
+
+/* ====================================================================
+   READ CURRENT PARAMETERS
+   ==================================================================== */
+function getCurrentParams() {
+    var ws = parseInt(document.getElementById('val-windowSize').value);
+    var po = parseInt(document.getElementById('val-polyOrder').value);
+    var dv = parseInt(document.getElementById('val-derivOrder').value);
+    var em = document.getElementById('select-edge').value;
+    return {
+        windowSize: isNaN(ws) ? 11 : ws,
+        polyOrder: isNaN(po) ? 3 : po,
+        derivOrder: isNaN(dv) ? 0 : dv,
+        edgeMethod: em || 'extrapolation'
+    };
+}
+
+/* ====================================================================
+   PARAMETER CONSTRAINTS + AUTO-PREVIEW
+   ==================================================================== */
+function syncParameterConstraints() {
+    var maxWindow = Math.max(3, nChannels || windowCfg.max);
+    if (maxWindow % 2 === 0) maxWindow -= 1;
+    windowCfg.max = Math.max(3, Math.min(windowCfg.max, maxWindow));
+    var windowSlider = document.getElementById('slider-windowSize');
+    windowSlider.max = windowCfg.max;
+
+    var params = getCurrentParams();
+    var ws = Math.max(3, Math.min(windowCfg.max, params.windowSize));
+    if (ws % 2 === 0) ws += (ws < windowCfg.max ? 1 : -1);
+    var po = Math.max(0, Math.min(ws - 1, params.polyOrder));
+    var dv = Math.max(0, Math.min(3, po, params.derivOrder));
+
+    document.getElementById('val-windowSize').value = ws;
+    windowSlider.value = ws;
+    document.getElementById('val-polyOrder').value = po;
+    document.getElementById('slider-polyOrder').value = po;
+    document.getElementById('slider-polyOrder').max = Math.min(10, ws - 1);
+    document.getElementById('val-derivOrder').value = dv;
+    document.getElementById('slider-derivOrder').value = dv;
+    document.getElementById('slider-derivOrder').max = Math.min(3, po);
+    initDerivTicks(Math.min(3, po));
+    initWindowTicks();
+}
+
+function lockStaleResult() {
+    if (!hasResult && !resultCurrent) return;
+    resultCurrent = false;
+    document.getElementById('btn-export').disabled = true;
+    setStatus('processing', 'Parameters changed. Apply to refresh the result.');
+}
+
+function scheduleAutoPreview() {
+    if (!hasData) return;
+    syncParameterConstraints();
+    lockStaleResult();
+    setStatus('processing', 'Previewing...');
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(function() {
+        previewRequestId += 1;
+        var params = getCurrentParams();
+        params.requestId = previewRequestId;
+        params.sampleIndex = currentSample;
+        sendAction('preview', params);
+    }, 350);
+}
+
+/* ====================================================================
+   ACTIONS -> MATLAB
+   ==================================================================== */
+function sendAction(action, extra) {
+    if (!htmlComponent) return;
+    var payload = {};
+    if (extra) {
+        for (var key in extra) {
+            if (Object.prototype.hasOwnProperty.call(extra, key)) payload[key] = extra[key];
+        }
+    }
+    payload.action = action;
+    htmlComponent.Data = payload;
+}
+
+function applyFilter() {
+    syncParameterConstraints();
+    clearTimeout(previewTimer);
+    var params = getCurrentParams();
+    setStatus('processing', 'Applying filter...');
+    showProgressOverlay('Applying Savitzky-Golay filter...', 0, 0, nSamples);
+    sendAction('apply', params);
+}
+
+function exportData() {
+    if (!resultCurrent) return;
+    sendAction('prepareExport');
+}
+
+/* ====================================================================
+   MATLAB RESPONSE HANDLER
+   ==================================================================== */
+function handleMatlabData(data) {
+    if (!data || typeof data !== 'object') return;
+    if (data.source !== 'matlab' || !data.response) return;
+    if (typeof data.timestamp === 'undefined' || data.timestamp <= lastTimestamp) return;
+    lastTimestamp = data.timestamp;
+    var payload = data.payload || {};
+
+    if (payload.statusMessage) {
+        setStatus(payload.statusType || 'success', payload.statusMessage);
+    }
+
+    switch (data.response) {
+        case 'ready':
+            setStatus('success', payload.message || 'Ready');
+            break;
+        case 'error':
+            hideProgressOverlay();
+            setStatus('error', payload.message || 'Unknown error');
+            showToast('error', 'Error', payload.message || 'Unknown error');
+            break;
+        case 'showVarList':
+            showVariableSelectionModal(payload);
+            break;
+        case 'dataLoaded':
+            onDataLoaded(payload);
+            break;
+        case 'previewUpdated':
+            onPreviewDone(payload);
+            break;
+        case 'progress':
+            onProgress(payload);
+            break;
+        case 'filterApplied':
+            onFilterDone(payload);
+            break;
+        case 'showExportDialog':
+            showExportDialog(payload);
+            break;
+        case 'exportCompleted':
+            setStatus('success', payload.message || 'Export complete.');
+            showToast('success', 'Export Complete', payload.message || 'Result exported.');
+            break;
+        case 'plotData':
+            onPlotData(payload);
+            break;
+        case 'plotDisabled':
+            hasResult = false;
+            resultSpectra = [];
+            renderResultChart();
+            setStatus('success', payload.message || 'Plot disabled');
+            break;
+        case 'statusUpdate':
+            setStatus(payload.type || 'success', payload.message || '');
+            break;
+    }
+}
+
+function onDataLoaded(data) {
+    hideProgressOverlay();
+    wavelength = toArray(data.wavelength);
+    originalSpectrum = toArray(data.sampleSpectrum);
+    smoothedSpectrum = toArray(data.previewFiltered);
+    nSamples = Number(data.nSamples) || 0;
+    nChannels = Number(data.nChannels) || wavelength.length;
+    currentSample = Math.max(1, Math.min(nSamples || 1, Number(data.sampleIndex) || 1));
+    sampleNames = toArray(data.sampleNames);
+    loadedVarName = data.varName || '';
+    axisUniform = data.axisUniform !== false;
+    hasData = true;
+    hasResult = false;
+    resultCurrent = false;
+    resultSpectra = [];
+    resultWavelengths = [];
+    resultPlotNote = '';
+
+    var availableMax = Number(data.maxWindow) || Math.max(3, nChannels - (nChannels % 2 === 0 ? 1 : 0));
+    windowCfg.min = Math.min(windowCfg.min, availableMax);
+    windowCfg.max = Math.min(windowCfg.max, availableMax);
+    if (windowCfg.max <= windowCfg.min) windowCfg.min = Math.max(3, windowCfg.max - 2);
+    document.getElementById('val-windowSize').value = Number(data.windowSize) || 11;
+    document.getElementById('val-polyOrder').value = Number(data.polyOrder) || 3;
+    document.getElementById('val-derivOrder').value = Number(data.derivOrder) || 0;
+    document.getElementById('select-edge').value = data.edgeMethod || 'extrapolation';
+    syncParameterConstraints();
+
+    document.getElementById('postLoadControls').style.display = 'flex';
+    document.getElementById('info-varname').textContent = loadedVarName || '--';
+    document.getElementById('info-size').textContent = nSamples + ' x ' + nChannels;
+    document.getElementById('info-spacing').textContent = axisUniform ? formatLabel(Number(data.xSpacing)) : 'non-uniform';
+    document.getElementById('btn-apply').disabled = false;
+    document.getElementById('btn-export').disabled = true;
+    updateSampleNavigation();
+
+    previewView = null;
+    resultView = null;
+    updateLegendSwatches();
+    renderAll();
+    setStatus('success', data.statusMessage || data.message || 'Data loaded.');
+}
+
+function onPreviewDone(data) {
+    var responseId = Number(data.requestId) || 0;
+    if (responseId && responseId < latestPreviewResponse) return;
+    latestPreviewResponse = Math.max(latestPreviewResponse, responseId);
+    wavelength = toArray(data.wavelength);
+    originalSpectrum = toArray(data.original);
+    smoothedSpectrum = toArray(data.filtered);
+    currentSample = Math.max(1, Math.min(nSamples || 1, Number(data.sampleIndex) || currentSample));
+    updateSampleNavigation();
+    previewView = null;
+    resultCurrent = data.resultCurrent === true;
+    document.getElementById('btn-export').disabled = !resultCurrent;
+    renderPreviewChart();
+    setStatus('success', data.statusMessage || 'Preview updated.');
+}
+
+function onFilterDone(data) {
+    hideProgressOverlay();
+    resultWavelengths = toArray(data.wavelength);
+    resultCurrent = true;
+    resultPlotNote = data.plotNote || '';
+    if (data.tooLarge) {
+        var selectedFiltered = toArray(data.selectedFiltered);
+        resultSpectra = selectedFiltered.length ? [selectedFiltered] : [];
+        hasResult = resultSpectra.length > 0;
+        showLargeDatasetOptions(data);
+        showToast('warning', 'Large Dataset', 'Showing the selected sample. Choose a plotting mode for spectra.');
+    } else {
+        resultSpectra = toMatrix(data.spectra);
+        hasResult = true;
+        showToast('success', 'Filter Applied', data.plotNote || 'Savitzky-Golay filter applied.');
+    }
+
+    nSamples = Number(data.nSamples) || nSamples;
+    nChannels = Number(data.nChannels) || nChannels;
+    document.getElementById('info-size').textContent = nSamples + ' x ' + nChannels;
+    resultView = null;
+    updateLegendSwatches();
+    renderResultChart();
+    document.getElementById('btn-export').disabled = false;
+    setStatus('success', data.statusMessage || 'Filter applied.');
+}
+
+function onPlotData(data) {
+    var spectra = toMatrix(data.spectra);
+    resultWavelengths = toArray(data.wavelength);
+    resultSpectra = spectra;
+    hasResult = true;
+    resultPlotNote = data.plotNote || '';
+    resultView = null;
+    updateLegendSwatches();
+    renderResultChart();
+    setStatus('success', resultPlotNote || 'Result plot updated.');
+}
+
+/* ====================================================================
+   WORKSPACE, EXPORT, PROGRESS, AND LARGE-DATA MODALS
+   ==================================================================== */
+function showVariableSelectionModal(payload) {
+    var variables = toArray(payload.variables);
+    var vectors = toArray(payload.vectors);
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.minWidth = '440px';
+    modal.style.maxWidth = '620px';
+    modal.style.maxHeight = '85vh';
+    modal.style.display = 'flex';
+    modal.style.flexDirection = 'column';
+
+    var html = '<div class="modal-title">Load Data from Workspace</div>' +
+        '<div style="flex:1;overflow-y:auto;border:1px solid var(--border-color);border-radius:8px;margin-bottom:12px;">' +
+        '<table class="var-table"><thead><tr><th></th><th>Variable</th><th>Size</th><th>Rows</th><th>Channels</th></tr></thead><tbody>';
+    for (var i = 0; i < variables.length; i++) {
+        var item = variables[i] || {};
+        html += '<tr class="var-row" data-name="' + item.name + '" data-cols="' + item.cols + '" style="cursor:pointer;">' +
+            '<td><input type="radio" name="sav-var" value="' + item.name + '"' + (i === 0 ? ' checked' : '') + '></td>' +
+            '<td style="font-weight:600;text-align:left;">' + item.name + '</td>' +
+            '<td>' + item.size + '</td><td>' + item.rows + '</td><td>' + item.cols + '</td></tr>';
+    }
+    html += '</tbody></table></div>' +
+        '<div class="form-group"><label class="form-label">X-axis</label>' +
+        '<select class="edge-select" id="xaxis-select"><option value="">Use struct axis or column indices</option></select></div>' +
+        '<div class="modal-btns"><button class="btn-secondary btn-sm" id="var-cancel">Cancel</button>' +
+        '<button class="btn-primary btn-sm" id="var-load">Load</button></div>';
+    modal.innerHTML = html;
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function updateAxisChoices() {
+        var selected = modal.querySelector('input[name="sav-var"]:checked');
+        var row = selected ? selected.closest('tr') : null;
+        var columns = row ? Number(row.dataset.cols) : 0;
+        var select = document.getElementById('xaxis-select');
+        select.innerHTML = '<option value="">Use struct axis or column indices</option>';
+        for (var j = 0; j < vectors.length; j++) {
+            var vector = vectors[j] || {};
+            if (Number(vector.length) !== columns) continue;
+            var option = document.createElement('option');
+            option.value = vector.name;
+            option.textContent = vector.name + ' (' + vector.length + ')';
+            select.appendChild(option);
+        }
+    }
+
+    function selectRow(row) {
+        var rows = modal.querySelectorAll('.var-row');
+        for (var j = 0; j < rows.length; j++) rows[j].classList.remove('selected');
+        row.classList.add('selected');
+        row.querySelector('input[type="radio"]').checked = true;
+        updateAxisChoices();
+    }
+
+    function loadSelected() {
+        var selected = modal.querySelector('input[name="sav-var"]:checked');
+        if (!selected) return;
+        var axisSelect = document.getElementById('xaxis-select');
+        var request = { varName: selected.value };
+        if (axisSelect.value) request.xAxisVar = axisSelect.value;
+        overlay.remove();
+        showProgressOverlay('Loading ' + selected.value + '...', 0, 0, 0);
+        sendAction('loadVariable', request);
+    }
+
+    var rows = modal.querySelectorAll('.var-row');
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        rows[rowIndex].onclick = function() { selectRow(this); };
+        rows[rowIndex].ondblclick = loadSelected;
+    }
+    if (rows.length) selectRow(rows[0]);
+    document.getElementById('var-load').onclick = loadSelected;
+    document.getElementById('var-cancel').onclick = function() { overlay.remove(); };
+    overlay.onclick = function(event) { if (event.target === overlay) overlay.remove(); };
+}
+
+function showExportDialog(payload) {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = '<div class="modal-title">Export Filtered Data</div>' +
+        '<div class="form-group"><label class="form-label">MATLAB variable name</label>' +
+        '<input class="form-input" id="export-name" value="' + (payload.suggestedName || 'savGolFilteredData') + '"></div>' +
+        '<div class="modal-btns"><button class="btn-secondary btn-sm" id="export-cancel">Cancel</button>' +
+        '<button class="btn-primary btn-sm" id="export-confirm">Export</button></div>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    var input = document.getElementById('export-name');
+    input.focus();
+    input.select();
+    function confirmExport() {
+        var name = input.value.trim();
+        if (!name) return;
+        overlay.remove();
+        sendAction('doExport', { varName: name });
+    }
+    document.getElementById('export-confirm').onclick = confirmExport;
+    document.getElementById('export-cancel').onclick = function() { overlay.remove(); };
+    input.onkeydown = function(event) {
+        if (event.key === 'Enter') confirmExport();
+        if (event.key === 'Escape') overlay.remove();
+    };
+}
+
+function onProgress(payload) {
+    var current = Number(payload.current) || 0;
+    var total = Number(payload.total) || 0;
+    var percent = payload.percent !== undefined ? Number(payload.percent) : (total ? current / total * 100 : 0);
+    showProgressOverlay(payload.title || 'Processing...', Math.round(percent), current, total);
+}
+
+function showProgressOverlay(title, percent, current, total) {
+    var overlay = document.getElementById('progress-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'progress-overlay';
+        overlay.className = 'progress-overlay';
+        overlay.innerHTML = '<div class="progress-box"><div class="progress-title" id="progress-title"></div>' +
+            '<div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>' +
+            '<div class="progress-text" id="progress-text"></div></div>';
+        document.body.appendChild(overlay);
+    }
+    percent = Math.max(0, Math.min(100, Number(percent) || 0));
+    document.getElementById('progress-title').textContent = title;
+    document.getElementById('progress-fill').style.width = percent + '%';
+    document.getElementById('progress-text').textContent = total ? current + ' / ' + total + '  (' + percent + '%)' : '';
+}
+
+function hideProgressOverlay() {
+    var overlay = document.getElementById('progress-overlay');
+    if (overlay) overlay.remove();
+}
+
+function showLargeDatasetOptions(payload) {
+    var existing = document.getElementById('large-data-overlay');
+    if (existing) existing.remove();
+    var overlay = document.createElement('div');
+    overlay.id = 'large-data-overlay';
+    overlay.className = 'modal-overlay';
+    var suggestedStep = Math.max(2, Math.ceil((Number(payload.nSamples) || 1) / 200));
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = '<div class="modal-title">Large Result Plot</div>' +
+        '<div style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px;">The filtered result is ready. The chart currently shows sample ' + (payload.sampleIndex || currentSample) + '.</div>' +
+        '<div class="form-group"><label class="form-label">Show every Nth spectrum</label>' +
+        '<input class="form-input" id="large-step" type="number" min="1" value="' + suggestedStep + '"></div>' +
+        '<div class="modal-btns"><button class="btn-secondary btn-sm" id="large-none">Keep selected sample</button>' +
+        '<button class="btn-secondary btn-sm" id="large-all">Show all</button>' +
+        '<button class="btn-primary btn-sm" id="large-every">Show every Nth</button></div>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    document.getElementById('large-none').onclick = function() { overlay.remove(); };
+    document.getElementById('large-all').onclick = function() {
+        overlay.remove(); sendAction('plotOption', { mode: 'all' });
+    };
+    document.getElementById('large-every').onclick = function() {
+        var step = Math.max(1, Number(document.getElementById('large-step').value) || suggestedStep);
+        overlay.remove(); sendAction('plotOption', { mode: 'every', step: step });
+    };
+}
+
+/* ====================================================================
+   TOAST NOTIFICATIONS
+   ==================================================================== */
+function showToast(type, title, message, duration) {
+    duration = duration || 4000;
+    var container = document.getElementById('toast-container');
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+
+    var icons = { success: '&#10003;', error: '&#10007;', info: '&#8505;', warning: '&#9888;' };
+    toast.innerHTML =
+        '<div class="toast-icon">' + (icons[type] || '&#8226;') + '</div>' +
+        '<div class="toast-content">' +
+            '<div class="toast-title">' + title + '</div>' +
+            '<div class="toast-message">' + message + '</div>' +
+        '</div>' +
+        '<button class="toast-close" onclick="this.parentElement.remove()">&#215;</button>';
+
+    container.appendChild(toast);
+
+    setTimeout(function() {
+        toast.style.animation = 'toastSlideOut 0.3s ease forwards';
+        setTimeout(function() { if (toast.parentElement) toast.remove(); }, 300);
+    }, duration);
+}
+
+/* ====================================================================
+   STATUS BAR
+   ==================================================================== */
+function setStatus(type, message) {
+    var ind = document.getElementById('status-indicator');
+    document.getElementById('status-message').textContent = message || '';
+    ind.className = 'status-indicator';
+    if (type === 'error') ind.classList.add('error');
+    else if (type === 'processing' || type === 'loading') ind.classList.add('processing');
+}
+
+/* ====================================================================
+   HELP MODAL
+   ==================================================================== */
+function showHelp() {
+    var ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    var md = document.createElement('div');
+    md.className = 'modal';
+    md.style.maxWidth = '520px';
+
+    var currentPage = 0;
+    var totalPages = 3;
+
+    var stepStyle = 'display:flex;gap:12px;align-items:flex-start;margin-bottom:10px;';
+    var stepBadge = 'width:28px;height:28px;border-radius:50%;background:var(--accent-primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;';
+
+    var pages = [
+        '<div style="font-size:15px;color:var(--text-secondary);line-height:1.7;">' +
+        '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">Quick Start</div>' +
+        '<div style="' + stepStyle + '"><div style="' + stepBadge + '">1</div><div><b>Load Data</b> -- Click "Load Data" to select a spectral matrix from the MATLAB workspace.</div></div>' +
+        '<div style="' + stepStyle + '"><div style="' + stepBadge + '">2</div><div><b>Tune Parameters</b> -- Adjust window size, polynomial order, and derivative order. The preview updates live as you drag.</div></div>' +
+        '<div style="' + stepStyle + '"><div style="' + stepBadge + '">3</div><div><b>Apply</b> -- Click "Apply" to run the filter on every spectrum. Click "Export" to save results to the workspace.</div></div>' +
+        '</div>',
+
+        '<div style="font-size:15px;color:var(--text-secondary);line-height:1.7;">' +
+        '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">Parameters</div>' +
+        '<div style="margin-bottom:14px;"><div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Window Size</div><div>Number of data points in the convolution window. Must be odd. Larger windows produce smoother results but reduce detail.</div></div>' +
+        '<div style="margin-bottom:14px;"><div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Polynomial Order</div><div>Degree of the polynomial fitted in each window. Higher order preserves sharper features but may overfit noise.</div></div>' +
+        '<div style="margin-bottom:14px;"><div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Derivative Order</div><div>0 for smoothing, up to 3 for derivatives. The polynomial order must be greater than or equal to the derivative order.</div></div>' +
+        '<div><div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">Edge Handling</div><div>How to handle boundary effects: None, Reflection, Replication, or Extrapolation.</div></div>' +
+        '</div>',
+
+        '<div style="font-size:15px;color:var(--text-secondary);line-height:1.7;">' +
+        '<div style="font-size:16px;font-weight:600;color:var(--text-primary);margin-bottom:12px;">Shortcuts</div>' +
+        '<table style="width:100%;font-size:14px;border-collapse:collapse;">' +
+        '<tr><td style="padding:6px 0;font-weight:600;color:var(--text-primary);width:40%;">Ctrl + D</td><td style="padding:6px 0;">Toggle dark mode</td></tr>' +
+        '<tr><td style="padding:6px 0;border-top:1px solid var(--border-color);font-weight:600;color:var(--text-primary);">Mouse wheel</td><td style="padding:6px 0;border-top:1px solid var(--border-color);">Zoom in/out on chart</td></tr>' +
+        '<tr><td style="padding:6px 0;border-top:1px solid var(--border-color);font-weight:600;color:var(--text-primary);">Click + drag</td><td style="padding:6px 0;border-top:1px solid var(--border-color);">Pan across chart</td></tr>' +
+        '<tr><td style="padding:6px 0;border-top:1px solid var(--border-color);font-weight:600;color:var(--text-primary);">Double-click chart</td><td style="padding:6px 0;border-top:1px solid var(--border-color);">Reset zoom to fit all data</td></tr>' +
+        '</table></div>'
+    ];
+
+    function buildHTML() {
+        var h = '<div class="modal-title">Savitzky-Golay Filter -- Help</div>';
+        for (var i = 0; i < totalPages; i++) {
+            h += '<div class="help-page' + (i === currentPage ? ' active' : '') + '" id="help-page-' + i + '">' + pages[i] + '</div>';
+        }
+        h += '<div class="help-dots">';
+        for (var i = 0; i < totalPages; i++) {
+            h += '<div class="help-dot' + (i === currentPage ? ' active' : '') + '" data-page="' + i + '"></div>';
+        }
+        h += '</div>';
+        h += '<div class="modal-btns">';
+        if (currentPage > 0) h += '<button class="btn-secondary btn-sm" id="help-prev">Previous</button>';
+        if (currentPage < totalPages - 1) h += '<button class="btn-primary btn-sm" id="help-next">Next</button>';
+        else h += '<button class="btn-primary btn-sm" id="help-close">Close</button>';
+        h += '</div>';
+        return h;
+    }
+
+    function render() {
+        md.innerHTML = buildHTML();
+        var dots = md.querySelectorAll('.help-dot');
+        for (var i = 0; i < dots.length; i++) {
+            dots[i].onclick = function() { currentPage = parseInt(this.dataset.page); render(); };
+        }
+        var prevBtn = document.getElementById('help-prev');
+        var nextBtn = document.getElementById('help-next');
+        var closeBtn = document.getElementById('help-close');
+        if (prevBtn) prevBtn.onclick = function() { currentPage--; render(); };
+        if (nextBtn) nextBtn.onclick = function() { currentPage++; render(); };
+        if (closeBtn) closeBtn.onclick = function() { ov.remove(); };
+    }
+
+    ov.appendChild(md);
+    document.body.appendChild(ov);
+    render();
+    ov.onclick = function(e) { if (e.target === ov) ov.remove(); };
+}
+
+/* ====================================================================
+   CANVAS 2D DRAWING UTILITIES
+   ==================================================================== */
+function getColors() {
+    var cs = getComputedStyle(document.documentElement);
+    return {
+        spectrum: cs.getPropertyValue('--spectrum-color').trim(),
+        smoothed: cs.getPropertyValue('--smoothed-color').trim(),
+        result: cs.getPropertyValue('--result-color').trim(),
+        allSpectra: cs.getPropertyValue('--all-spectra-color').trim(),
+        grid: cs.getPropertyValue('--grid-color').trim(),
+        text: cs.getPropertyValue('--axis-text').trim()
+    };
+}
+
+function updateLegendSwatches() {
+    var c = getColors();
+    var s;
+    s = document.getElementById('swatch-original'); if (s) s.style.background = c.spectrum;
+    s = document.getElementById('swatch-smoothed'); if (s) s.style.background = c.smoothed;
+    s = document.getElementById('swatch-result'); if (s) s.style.background = c.result;
+}
+
+function updateSampleNavigation() {
+    var total = nSamples || 1;
+    currentSample = Math.max(1, Math.min(total, currentSample || 1));
+    var label = document.getElementById('sample-index-label');
+    if (label) label.textContent = currentSample + '/' + total;
+    var prev = document.getElementById('badge-prev-sample');
+    var next = document.getElementById('badge-next-sample');
+    var index = document.getElementById('badge-sample-index');
+    if (prev) prev.classList.toggle('disabled', nSamples <= 1 || currentSample <= 1);
+    if (next) next.classList.toggle('disabled', nSamples <= 1 || currentSample >= nSamples);
+    if (index) index.classList.toggle('disabled', nSamples <= 1);
+    var name = sampleNames.length >= currentSample ? sampleNames[currentSample - 1] : '';
+    var title = name ? 'Sample ' + currentSample + ': ' + name : 'Sample ' + currentSample + ' of ' + total;
+    if (index) index.title = title + ' (click to edit)';
+}
+
+function stepSample(dir) {
+    if (nSamples <= 1) return;
+    currentSample = Math.max(1, Math.min(nSamples, currentSample + dir));
+    updateSampleNavigation();
+    scheduleAutoPreview();
+}
+
+function editSampleIndex() {
+    if (nSamples <= 1) return;
+    var label = document.getElementById('sample-index-label');
+    var input = document.getElementById('sample-index-input');
+    if (!label || !input) return;
+    label.style.display = 'none';
+    input.style.display = 'inline';
+    input.value = currentSample;
+    input.focus();
+    input.select();
+}
+
+function handleSampleIndexKey(event) {
+    if (event.key === 'Enter') event.target.blur();
+    else if (event.key === 'Escape') {
+        var label = document.getElementById('sample-index-label');
+        var input = document.getElementById('sample-index-input');
+        input.style.display = 'none';
+        label.style.display = 'inline';
+    }
+}
+
+function commitSampleIndex() {
+    var label = document.getElementById('sample-index-label');
+    var input = document.getElementById('sample-index-input');
+    if (!label || !input) return;
+    input.style.display = 'none';
+    label.style.display = 'inline';
+    var value = parseInt(input.value, 10);
+    if (isNaN(value)) value = currentSample;
+    value = Math.max(1, Math.min(nSamples || 1, value));
+    if (value !== currentSample) {
+        currentSample = value;
+        updateSampleNavigation();
+        scheduleAutoPreview();
+    }
+}
+
+function setupCanvas(canvasId) {
+    var canvas = document.getElementById(canvasId);
+    var rect = canvas.parentElement.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.round(rect.width);
+    var h = Math.round(rect.height);
+    if (w < 10 || h < 10) return null;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    return { ctx: ctx, w: w, h: h };
+}
+
+function getDataRange(datasets) {
+    var mn = Infinity, mx = -Infinity;
+    for (var d = 0; d < datasets.length; d++) {
+        var arr = datasets[d];
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i] < mn) mn = arr[i];
+            if (arr[i] > mx) mx = arr[i];
+        }
+    }
+    if (mn === Infinity) { mn = 0; mx = 1; }
+    var pad = (mx - mn) * 0.05 || 0.1;
+    return { min: mn - pad, max: mx + pad };
+}
+
+function getAxisBounds(axis) {
+    if (!axis || axis.length === 0) return { min: 0, max: 1 };
+    var minValue = Infinity;
+    var maxValue = -Infinity;
+    for (var i = 0; i < axis.length; i++) {
+        var value = Number(axis[i]);
+        if (value < minValue) minValue = value;
+        if (value > maxValue) maxValue = value;
+    }
+    return { min: minValue, max: maxValue };
+}
+
+function formatLabel(value) {
+    if (!isFinite(value)) return '--';
+    var magnitude = Math.abs(value);
+    if ((magnitude >= 10000) || (magnitude > 0 && magnitude < 0.001)) return value.toExponential(2);
+    if (magnitude >= 100) return value.toFixed(0);
+    if (magnitude >= 1) return value.toFixed(2).replace(/\.?0+$/, '');
+    return value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function drawGrid(ctx, w, h, xMin, xMax, yMin, yMax, colors) {
+    var m = MARGIN;
+    var pw = w - m.left - m.right;
+    var ph = h - m.top - m.bottom;
+
+    ctx.strokeStyle = colors.grid;
+    ctx.lineWidth = 1;
+    var xTicks = makeNiceTicks(xMin, xMax, 7);
+    for (var i = 0; i < xTicks.length; i++) {
+        var xPx = m.left + (xTicks[i] - xMin) / (xMax - xMin || 1) * pw;
+        ctx.beginPath(); ctx.moveTo(xPx, m.top); ctx.lineTo(xPx, m.top + ph); ctx.stroke();
+    }
+    for (var j = 0; j <= 4; j++) {
+        var yPx = m.top + ph - ph * j / 4;
+        ctx.beginPath(); ctx.moveTo(m.left, yPx); ctx.lineTo(m.left + pw, yPx); ctx.stroke();
+    }
+
+    ctx.strokeStyle = colors.text;
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 0.3;
+    ctx.beginPath();
+    ctx.moveTo(m.left, m.top + ph); ctx.lineTo(m.left + pw, m.top + ph);
+    ctx.moveTo(m.left, m.top); ctx.lineTo(m.left, m.top + ph);
+    ctx.stroke();
+    ctx.globalAlpha = 1.0;
+
+    ctx.fillStyle = colors.text;
+    ctx.font = '13px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (var i = 0; i < xTicks.length; i++) {
+        var xVal = xTicks[i];
+        ctx.fillText(formatLabel(xVal), m.left + (xVal - xMin) / (xMax - xMin || 1) * pw, m.top + ph + 5);
+    }
+
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (var j = 0; j <= 4; j++) {
+        var yVal = yMin + (yMax - yMin) * j / 4;
+        var lbl;
+        if (Math.abs(yVal) < 1000 && Math.abs(yVal) > 0.01) lbl = yVal.toFixed(2);
+        else lbl = yVal.toExponential(1);
+        ctx.fillText(lbl, m.left - 5, m.top + ph - ph * j / 4);
+    }
+
+    ctx.fillStyle = colors.text;
+    ctx.globalAlpha = 0.6;
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(loadedVarName ? 'X axis' : 'Channel', m.left + pw / 2, m.top + ph + 22);
+    ctx.globalAlpha = 1.0;
+
+    ctx.save();
+    ctx.fillStyle = colors.text;
+    ctx.globalAlpha = 0.6;
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.translate(12, m.top + ph / 2);
+    ctx.rotate(-Math.PI / 2);
+    var derivative = getCurrentParams().derivOrder;
+    ctx.fillText(derivative > 0 ? ('Derivative order ' + derivative) : 'Intensity', 0, 0);
+    ctx.restore();
+    ctx.globalAlpha = 1.0;
+
+    return { plotW: pw, plotH: ph };
+}
+
+function makeNiceTicks(minimum, maximum, targetCount) {
+    var low = Math.min(Number(minimum), Number(maximum));
+    var high = Math.max(Number(minimum), Number(maximum));
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high === low) return [low];
+    var rawStep = (high - low) / Math.max(1, targetCount - 1);
+    var power = Math.pow(10, Math.floor(Math.log10(rawStep)));
+    var scaled = rawStep / power;
+    var factor = scaled <= 1 ? 1 : (scaled <= 3 ? 2 : (scaled <= 5 ? 5 : 10));
+    var step = factor * power;
+    var first = Math.ceil(low / step - 1e-10) * step;
+    var last = Math.floor(high / step + 1e-10) * step;
+    var ticks = [];
+    for (var value = first; value <= last + step * 1e-9; value += step) {
+        ticks.push(Math.abs(value) < step * 1e-10 ? 0 : value);
+    }
+    if (low === 1 && high <= 100 && (ticks.length === 0 || ticks[0] !== 1)) ticks.unshift(1);
+    return ticks.length ? ticks : [low, high];
+}
+
+function drawLine(ctx, xData, yData, xMin, xMax, yMin, yMax, pw, ph, color, lw, dash) {
+    var m = MARGIN;
+    var xR = (xMax - xMin) || 1;
+    var yR = (yMax - yMin) || 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw || 1.5;
+    if (dash) ctx.setLineDash(dash); else ctx.setLineDash([]);
+
+    var iStart = 0, iEnd = Math.min(xData.length, yData.length) - 1;
+    var ascending = xData[iEnd] >= xData[0];
+    if (ascending) {
+        while (iStart <= iEnd && xData[iStart] < xMin) iStart++;
+        while (iEnd >= iStart && xData[iEnd] > xMax) iEnd--;
+    } else {
+        while (iStart <= iEnd && xData[iStart] > xMax) iStart++;
+        while (iEnd >= iStart && xData[iEnd] < xMin) iEnd--;
+    }
+    if (iStart > iEnd) {
+        ctx.setLineDash([]);
+        return;
+    }
+    if (iStart > 0) iStart--;
+    if (iEnd < xData.length - 1) iEnd++;
+    var visibleCount = iEnd - iStart + 1;
+
+    var maxPoints = pw * 2;
+    ctx.beginPath();
+
+    if (visibleCount > maxPoints && visibleCount > 4) {
+        var bucketSize = visibleCount / (maxPoints / 2);
+        var started = false;
+        for (var b = 0; b < maxPoints / 2; b++) {
+            var bStart = iStart + Math.floor(b * bucketSize);
+            var bEnd = Math.min(iStart + Math.floor((b + 1) * bucketSize), iEnd + 1);
+            var minY = Infinity, maxY = -Infinity, minI = bStart, maxI = bStart;
+            for (var j = bStart; j < bEnd; j++) {
+                if (yData[j] < minY) { minY = yData[j]; minI = j; }
+                if (yData[j] > maxY) { maxY = yData[j]; maxI = j; }
+            }
+            var pts = minI < maxI ? [minI, maxI] : [maxI, minI];
+            for (var k = 0; k < 2; k++) {
+                var x = m.left + (xData[pts[k]] - xMin) / xR * pw;
+                var y = m.top + ph - (yData[pts[k]] - yMin) / yR * ph;
+                if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+            }
+        }
+    } else {
+        var started = false;
+        for (var i = iStart; i <= iEnd; i++) {
+            var x = m.left + (xData[i] - xMin) / xR * pw;
+            var y = m.top + ph - (yData[i] - yMin) / yR * ph;
+            if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+        }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+}
+
+/* ====================================================================
+   CHART RENDERING
+   ==================================================================== */
+function getAutoView(chartType) {
+    if (chartType === 'preview') {
+        var allY = [originalSpectrum];
+        if (smoothedSpectrum.length > 0) allY.push(smoothedSpectrum);
+        var yr = getDataRange(allY);
+        var bounds = getAxisBounds(wavelength);
+        return {
+            xMin: bounds.min,
+            xMax: bounds.max,
+            yMin: yr.min,
+            yMax: yr.max
+        };
+    } else {
+        var datasets = [];
+        for (var i = 0; i < resultSpectra.length; i++) datasets.push(resultSpectra[i]);
+        if (datasets.length === 0) datasets.push([0, 1]);
+        var yr = getDataRange(datasets);
+        var wl = resultWavelengths.length > 0 ? resultWavelengths : wavelength;
+        var bounds = getAxisBounds(wl);
+        return {
+            xMin: bounds.min,
+            xMax: bounds.max,
+            yMin: yr.min,
+            yMax: yr.max
+        };
+    }
+}
+
+function renderPreviewChart() {
+    var canvas = document.getElementById('preview-canvas');
+    var emptyEl = document.getElementById('preview-empty');
+    if (originalSpectrum.length === 0) {
+        canvas.style.display = 'none';
+        emptyEl.style.display = 'flex';
+        document.getElementById('preview-legend').style.display = 'none';
+        return;
+    }
+    emptyEl.style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('preview-legend').style.display = 'flex';
+
+    var c = setupCanvas('preview-canvas');
+    if (!c) return;
+    var colors = getColors();
+    c.ctx.clearRect(0, 0, c.w, c.h);
+
+    var allY = [originalSpectrum];
+    if (smoothedSpectrum.length > 0) allY.push(smoothedSpectrum);
+    var autoY = getDataRange(allY);
+    var previewBounds = getAxisBounds(wavelength);
+    var view = previewView || {
+        xMin: previewBounds.min,
+        xMax: previewBounds.max,
+        yMin: autoY.min,
+        yMax: autoY.max
+    };
+    var layout = drawGrid(c.ctx, c.w, c.h, view.xMin, view.xMax, view.yMin, view.yMax, colors);
+
+    /* Draw original (blue) */
+    drawLine(c.ctx, wavelength, originalSpectrum, view.xMin, view.xMax, view.yMin, view.yMax, layout.plotW, layout.plotH, colors.spectrum, 1.5);
+
+    /* Draw smoothed (red, dashed) */
+    if (smoothedSpectrum.length > 0) {
+        drawLine(c.ctx, wavelength, smoothedSpectrum, view.xMin, view.xMax, view.yMin, view.yMax, layout.plotW, layout.plotH, colors.smoothed, 2, [6, 3]);
+    }
+}
+
+function renderResultChart() {
+    var canvas = document.getElementById('result-canvas');
+    var emptyEl = document.getElementById('result-empty');
+    if (!hasResult || resultSpectra.length === 0) {
+        canvas.style.display = 'none';
+        emptyEl.style.display = 'flex';
+        document.getElementById('result-legend').style.display = 'none';
+        return;
+    }
+    emptyEl.style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('result-legend').style.display = 'flex';
+
+    var c = setupCanvas('result-canvas');
+    if (!c) return;
+    var colors = getColors();
+    c.ctx.clearRect(0, 0, c.w, c.h);
+
+    var wl = resultWavelengths.length > 0 ? resultWavelengths : wavelength;
+    var datasets = resultSpectra;
+    var allY = [];
+    for (var i = 0; i < datasets.length; i++) allY.push(datasets[i]);
+    var autoY = getDataRange(allY);
+    var resultBounds = getAxisBounds(wl);
+    var view = resultView || {
+        xMin: resultBounds.min,
+        xMax: resultBounds.max,
+        yMin: autoY.min,
+        yMax: autoY.max
+    };
+    var layout = drawGrid(c.ctx, c.w, c.h, view.xMin, view.xMax, view.yMin, view.yMax, colors);
+
+    /* Draw all result spectra */
+    var maxLines = Math.min(datasets.length, 200);
+    var step = Math.max(1, Math.floor(datasets.length / maxLines));
+    for (var i = 0; i < datasets.length; i += step) {
+        var alpha = datasets.length <= 2 ? 1.0 : 0.4;
+        var lw = datasets.length <= 2 ? 1.5 : 0.8;
+        drawLine(c.ctx, wl, datasets[i], view.xMin, view.xMax, view.yMin, view.yMax, layout.plotW, layout.plotH, colors.result, lw);
+    }
+}
+
+function renderAll() {
+    renderPreviewChart();
+    renderResultChart();
+}
+
+/* ====================================================================
+   ZOOM / PAN
+   ==================================================================== */
+function handleWheel(e, chartType) {
+    e.preventDefault();
+    var data = (chartType === 'preview') ? originalSpectrum : (resultSpectra.length > 0 ? resultSpectra[0] : []);
+    if (data.length === 0) return;
+
+    var view = (chartType === 'preview') ? previewView : resultView;
+    if (!view) view = getAutoView(chartType);
+
+    var factor = e.deltaY > 0 ? 1.15 : 0.87;
+    var canvasId = (chartType === 'preview') ? 'preview-canvas' : 'result-canvas';
+    var canvas = document.getElementById(canvasId);
+    var rect = canvas.getBoundingClientRect();
+    var pw = rect.width - MARGIN.left - MARGIN.right;
+    var ph = rect.height - MARGIN.top - MARGIN.bottom;
+    var fracX = Math.max(0, Math.min(1, (e.clientX - rect.left - MARGIN.left) / pw));
+    var fracY = Math.max(0, Math.min(1, 1 - (e.clientY - rect.top - MARGIN.top) / ph));
+
+    var xAt = view.xMin + (view.xMax - view.xMin) * fracX;
+    var yAt = view.yMin + (view.yMax - view.yMin) * fracY;
+    var nxr = (view.xMax - view.xMin) * factor;
+    var nyr = (view.yMax - view.yMin) * factor;
+    var nv = {
+        xMin: xAt - nxr * fracX,
+        xMax: xAt + nxr * (1 - fracX),
+        yMin: yAt - nyr * fracY,
+        yMax: yAt + nyr * (1 - fracY)
+    };
+
+    if (chartType === 'preview') { previewView = nv; renderPreviewChart(); }
+    else { resultView = nv; renderResultChart(); }
+}
+
+function handleMouseDown(e, chartType) {
+    if (e.button !== 0) return;
+    var view = (chartType === 'preview') ? previewView : resultView;
+    if (!view) view = getAutoView(chartType);
+    panState = {
+        chart: chartType,
+        startX: e.clientX,
+        startY: e.clientY,
+        origView: JSON.parse(JSON.stringify(view))
+    };
+}
+
+function handleMouseMove(e) {
+    if (!panState) return;
+    var canvasId = (panState.chart === 'preview') ? 'preview-canvas' : 'result-canvas';
+    var canvas = document.getElementById(canvasId);
+    var rect = canvas.getBoundingClientRect();
+    var pw = rect.width - MARGIN.left - MARGIN.right;
+    var ph = rect.height - MARGIN.top - MARGIN.bottom;
+
+    var ov = panState.origView;
+    var dx = e.clientX - panState.startX;
+    var dy = e.clientY - panState.startY;
+    var xShift = -(dx / pw) * (ov.xMax - ov.xMin);
+    var yShift = (dy / ph) * (ov.yMax - ov.yMin);
+
+    var nv = {
+        xMin: ov.xMin + xShift,
+        xMax: ov.xMax + xShift,
+        yMin: ov.yMin + yShift,
+        yMax: ov.yMax + yShift
+    };
+
+    if (panState.chart === 'preview') { previewView = nv; renderPreviewChart(); }
+    else { resultView = nv; renderResultChart(); }
+}
+
+function handleMouseUp() {
+    panState = null;
+}
+
+function resetZoom(chartType) {
+    if (chartType === 'preview') { previewView = null; renderPreviewChart(); }
+    else { resultView = null; renderResultChart(); }
+}
+
+function bindChartEvents(wrapperId, chartType) {
+    var wrapper = document.getElementById(wrapperId);
+    wrapper.addEventListener('wheel', function(e) { handleWheel(e, chartType); }, { passive: false });
+    wrapper.addEventListener('mousedown', function(e) { handleMouseDown(e, chartType); });
+    wrapper.addEventListener('dblclick', function() { resetZoom(chartType); });
+}
+
+document.addEventListener('mousemove', function(e) { handleMouseMove(e); });
+document.addEventListener('mouseup', function() { handleMouseUp(); });
+
+/* ====================================================================
+   RESIZE HANDLE (panel divider)
+   ==================================================================== */
+var isResizing = false;
+
+function initResizeHandle() {
+    var handle = document.getElementById('resize-handle');
+    var panel = document.getElementById('controls-panel');
+
+    handle.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        isResizing = true;
+        handle.classList.add('active');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!isResizing) return;
+        var newWidth = e.clientX;
+        if (newWidth < 220) newWidth = 220;
+        if (newWidth > 600) newWidth = 600;
+        panel.style.width = newWidth + 'px';
+        renderAll();
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (isResizing) {
+            isResizing = false;
+            var h = document.getElementById('resize-handle');
+            if (h) h.classList.remove('active');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            renderAll();
+        }
+    });
+}
+
+function initChartResizeHandles() {
+    var handle = document.getElementById('chart-resize-1');
+    var above = document.getElementById('chart-preview');
+    var below = document.getElementById('chart-result');
+    var state = null;
+
+    handle.addEventListener('mousedown', function(event) {
+        event.preventDefault();
+        state = {
+            startY: event.clientY,
+            aboveHeight: above.getBoundingClientRect().height,
+            belowHeight: below.getBoundingClientRect().height
+        };
+        handle.classList.add('active');
+        document.body.style.cursor = 'row-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    document.addEventListener('mousemove', function(event) {
+        if (!state) return;
+        var total = state.aboveHeight + state.belowHeight;
+        var nextAbove = Math.max(120, Math.min(total - 120, state.aboveHeight + event.clientY - state.startY));
+        above.style.flex = 'none';
+        below.style.flex = 'none';
+        above.style.height = nextAbove + 'px';
+        below.style.height = (total - nextAbove) + 'px';
+        renderAll();
+    });
+
+    document.addEventListener('mouseup', function() {
+        if (!state) return;
+        state = null;
+        handle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        renderAll();
+    });
+}
+
+/* ====================================================================
+   UTILITY
+   ==================================================================== */
+function toArray(obj) {
+    if (Array.isArray(obj)) return obj;
+    if (!obj) return [];
+    var arr = [];
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) arr.push(obj[keys[i]]);
+    return arr;
+}
+
+function toMatrix(obj) {
+    if (!obj) return [];
+    var arr = Array.isArray(obj) ? obj : Object.values(obj);
+    if (arr.length > 0 && typeof arr[0] === 'number') {
+        return [arr.map(Number)];
+    }
+    return arr.map(function(row) {
+        return Array.isArray(row) ? row : Object.values(row);
+    });
+}
+
+/* ====================================================================
+   SETUP + POLLING
+   ==================================================================== */
+var pollTimer = null;
+
+function setup(component) {
+    if (!component) return;
+    if (htmlComponent === component && pollTimer) return;
+    htmlComponent = component;
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(function() {
+        if (!htmlComponent) return;
+        var data = htmlComponent.Data;
+        if (!data || data.source !== 'matlab') return;
+        handleMatlabData(data);
+    }, 150);
+    updateLegendSwatches();
+    renderAll();
+    setStatus('success', 'Interface ready');
+    sendAction('uiReady');
+}
+
+/* ====================================================================
+   INITIALIZATION
+   ==================================================================== */
+document.addEventListener('DOMContentLoaded', function() {
+    restoreDarkMode();
+
+    initWindowTicks();
+    initPolyTicks();
+    initDerivTicks();
+
+    document.getElementById('val-windowSize').addEventListener('change', function() { syncWindowFromInput(); });
+    document.getElementById('val-polyOrder').addEventListener('change', function() { syncPolyFromInput(); });
+    document.getElementById('val-derivOrder').addEventListener('change', function() { syncDerivFromInput(); });
+
+    bindChartEvents('preview-wrapper', 'preview');
+    bindChartEvents('result-wrapper', 'result');
+
+    initResizeHandle();
+    initChartResizeHandles();
+
+    var resizeTimeout = null;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(function() { renderAll(); }, 150);
+    });
+
+    updateLegendSwatches();
+    renderAll();
+});
+
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(function() {
+        if (window.htmlComponent) setup(window.htmlComponent);
+    }, 50);
+}
+</script>
+</body>
+</html>
